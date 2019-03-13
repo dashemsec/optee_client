@@ -25,6 +25,12 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#define RPMB_KEY_RAND
+#ifdef RPMB_KEY_RAND
+#define RPMB_KEY_FILE "/home/root/rpmb_key.bin"
+#define RPMB_DATA_FILE "/home/root/rpmb_data.bin"
+#endif
+
 #include <fcntl.h>
 #include <linux/types.h>
 #include <linux/mmc/ioctl.h>
@@ -393,6 +399,18 @@ static uint16_t ioctl_emu_mem_transfer(struct rpmb_emu *mem,
 
 	if (!to_mmc)
 		compute_hmac(mem, frm, nfrm);
+#ifdef RPMB_KEY_RAND
+        FILE *fp;
+        fp = fopen(RPMB_DATA_FILE, "w");
+        if (fp) {
+                if (!fwrite(mem->buf, EMU_RPMB_SIZE_BYTES, 1, fp))
+			EMSG("fwrite of %s", RPMB_DATA_FILE);
+
+		fclose(fp);
+        } else
+		EMSG("fopen of %s", RPMB_DATA_FILE);
+#endif
+
 
 	return RPMB_RESULT_OK;
 }
@@ -417,6 +435,18 @@ static uint16_t ioctl_emu_setkey(struct rpmb_emu *mem,
 	dump_buffer("Setting key", frm->key_mac, 32);
 	memcpy(mem->key, frm->key_mac, 32);
 	mem->key_set = true;
+#ifdef RPMB_KEY_RAND
+        IMSG("Writing into file %s", RPMB_KEY_FILE);
+        FILE *fp;
+        fp = fopen(RPMB_KEY_FILE, "w");
+        if (fp) {
+		if (!fwrite(mem->key, 32, 1, fp))
+			EMSG("fwrite of %s", RPMB_KEY_FILE);
+
+                fclose(fp);
+        } else
+		EMSG("fopen of %s", RPMB_KEY_FILE);
+#endif
 
 	return RPMB_RESULT_OK;
 }
@@ -484,6 +514,36 @@ static int ioctl_emu(int fd, unsigned long request, ...)
 	uint16_t msg_type;
 	struct rpmb_emu *mem = mem_for_fd(fd);
 	va_list ap;
+
+#ifdef RPMB_KEY_RAND
+	static int cnt = 1;
+        if (cnt == 1) {
+                FILE *fp;
+                cnt ++;
+
+		IMSG("Reading from file %s", RPMB_KEY_FILE);
+                fp = fopen(RPMB_KEY_FILE, "r");
+                if(fp) {
+                        if (!fread(mem->key, 32, 1, fp))
+				EMSG("fread from %s", RPMB_KEY_FILE);
+                        else
+                                mem->key_set = true;
+
+                        fclose(fp);
+                } else
+			EMSG("fopen of %s", RPMB_KEY_FILE);
+
+		IMSG("Reading from file %s", RPMB_DATA_FILE);
+                fp = fopen(RPMB_DATA_FILE, "r");
+                if(fp) {
+                        if (!fread(mem->buf, EMU_RPMB_SIZE_BYTES, 1, fp))
+				EMSG("fread from %s", RPMB_DATA_FILE);
+
+                        fclose(fp);
+                } else
+			EMSG("fopen of %s", RPMB_DATA_FILE);
+        }
+#endif
 
 	if (request != MMC_IOC_CMD) {
 		EMSG("Unsupported ioctl: 0x%lx", request);
